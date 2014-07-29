@@ -1,0 +1,16 @@
+
+* todos
+
+** NEXT les av strømmen
+
+** NEXT bestille filter til ventilator
+
+* stuffs
+
+** WAITING avtal noe viktig
+
+** DELEGATED vask badet
+
+** CANCELED gjør et ærend
+
+** DONE prokastiner

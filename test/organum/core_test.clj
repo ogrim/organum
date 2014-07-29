@@ -6,13 +6,13 @@
 
 (deftest test-headline
   (testing "Parsing headline"
-    (is (= (parse-headline "** TODO Some text :atag:btag:")
-           (section 2 "Some text" ["atag" "btag"] "TODO")))))
+    (is (= (#'organum.core/parse-headline "** TODO Some text :atag:btag:")
+           (#'organum.core/section 2 "Some text" ["atag" "btag"] "TODO")))))
 
 (deftest test-block
   (testing "Parsing block heeader"
-    (is (= (parse-block "  #+BEGIN_WIBBLE minor")
-           (block "WIBBLE" "minor")))))
+    (is (= (#'organum.core/parse-block "  #+BEGIN_WIBBLE minor")
+           (#'organum.core/block "WIBBLE" "minor")))))
 
 (deftest test-testfile
   (testing "Parsing test.org"
@@ -32,3 +32,14 @@
         (is (some #(= (:line-type %) :table-row) (mapcat :content sections))))
       (testing "Contains unordered list lines"
         (is (some #(= (:line-type %) :unordered-list) (mapcat :content sections)))))))
+
+(def org-keywords ["NEXT" "WAITING" "DELEGATED" "CANCELED" "DONE"])
+
+(deftest test2
+  (testing "Parsing test2.org"
+    (let [sections (parse-file (io/resource "test2.org") :encoding "ISO-8859-1" :org-todo-keywords org-keywords)]
+      (is (= (:kw (nth sections 2)) "NEXT"))
+      (is (= (:kw (nth sections 5)) "WAITING"))
+      (is (= (:kw (nth sections 6)) "DELEGATED"))
+      (is (= (:kw (nth sections 7)) "CANCELED"))
+      (is (= (:kw (nth sections 8)) "DONE")))))

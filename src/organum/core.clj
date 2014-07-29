@@ -1,17 +1,18 @@
 (ns organum.core
-  (:require [clojure.java.io :as io]
-            [clojure.string :as string]))
+  (:require [clojure.java.io :refer [reader]]
+            [clojure.string :refer [blank? split triml replace-first join lower-case]]))
 
 ;; node constructors
 
-(defn node [type] {:type type :content []})
-(defn root [] (node :root))
-(defn section [level name tags kw] (merge (node :section) {:level level :name name :tags tags :kw kw}))
-(defn block [type qualifier] (merge (node :block) {:block-type type :qualifier qualifier}))
-(defn drawer [] (node :drawer))
-(defn line [type text] {:line-type type :text text})
+(def #^{:private true :dynamic true} *org-todo-keywords* ["TODO" "DONE"])
+(defn- node [type] {:type type :content []})
+(defn- root [] (node :root))
+(defn- section [level name tags kw] (merge (node :section) {:level level :name name :tags tags :kw kw}))
+(defn- block [type qualifier] (merge (node :block) {:block-type type :qualifier qualifier}))
+(defn- drawer [] (node :drawer))
+(defn- line [type text] {:line-type type :text text})
 
-(defn classify-line
+(defn- classify-line
   "Classify a line for dispatch to handle-line multimethod."
   [ln]
   (let [headline-re #"^(\*+)\s*(.*)$"
@@ -30,7 +31,7 @@
         horiz-re #"^\s*-{5,}\s*$"]
     (cond
      (re-matches headline-re ln) :headline
-     (string/blank? ln) :blank
+     (blank? ln) :blank
      (re-matches def-list-re ln) :definition-list
      (re-matches ordered-list-re ln) :ordered-list
      (re-matches unordered-list-re ln) :unordered-list
@@ -48,23 +49,23 @@
      (re-matches horiz-re ln) :horizontal-rule
      :else :paragraph)))
 
-(defn strip-tags
+(defn- strip-tags
   "Return the line with tags stripped out and list of tags"
   [ln]
   (if-let [[_ text tags] (re-matches #"(.*?)\s*(:[\w:]*:)\s*$" ln)]
-    [text (remove string/blank? (string/split tags #":"))]
+    [text (remove blank? (split tags #":"))]
     [ln nil]))
 
-(defn strip-keyword
+(defn- strip-keyword
   "Return the line with keyword stripped out and list of keywords"
   [ln]
-  (let [keywords-re #"(TODO|DONE)?"
-        words (string/split ln #"\s+")]
+  (let [keywords-re (->> *org-todo-keywords* (join \|) (format "(%s)?") re-pattern)
+        words (split ln #"\s+")]
     (if (re-matches keywords-re (words 0))
-      [(string/triml (string/replace-first ln (words 0) "")) (words 0)] 
+      [(triml (replace-first ln (words 0) "")) (words 0)]
       [ln nil])))
 
-(defn parse-headline [ln]
+(defn- parse-headline [ln]
   (when-let [[_ prefix text] (re-matches  #"^(\*+)\s*(.*?)$" ln)]
     (let [[text tags] (strip-tags text)
           [text kw] (strip-keyword text)]
@@ -77,7 +78,7 @@
 
 ;; State helpers
 
-(defn subsume
+(defn- subsume
   "Updates the current node (header, block, drawer) to contain the specified
    item."
   [state item]
@@ -85,38 +86,56 @@
         new (update-in top [:content] conj item)]
     (conj (pop state) new)))
 
-(defn subsume-top
+(defn- subsume-top
   "Closes off the top node by subsuming it into its parent's content"
   [state]
   (let [top (last state)
         state (pop state)]
     (subsume state top)))
 
-(defmulti handle-line
+(defmulti #^{:private true}
+  handle-line
   "Parse line and return updated state."
-  (fn [state ln] (classify-line ln)))
+  (fn [state ln]
+    (classify-line ln)))
 
-(defmethod handle-line :headline [state ln]
+(defmethod #^{:private true}
+  handle-line :headline [state ln]
   (conj state (parse-headline ln)))
 
-(defmethod handle-line :begin-block [state ln]
+(defmethod #^{:private true}
+  handle-line :begin-block [state ln]
   (conj state (parse-block ln)))
 
-(defmethod handle-line :end-block [state ln]
+(defmethod #^{:private true}
+  handle-line :end-block [state ln]
   (subsume-top state))
 
-(defmethod handle-line :property-drawer-begin-block [state ln]
+(defmethod #^{:private true}
+  handle-line :property-drawer-begin-block [state ln]
   (conj state (drawer)))
 
-(defmethod handle-line :property-drawer-end-block [state ln]
+(defmethod #^{:private true}
+  handle-line :property-drawer-end-block [state ln]
   (subsume-top state))
 
-(defmethod handle-line :default [state ln]
+(defmethod #^{:private true}
+  handle-line :default [state ln]
   (subsume state (line (classify-line ln) ln)))
 
 (defn parse-file
   "Parse file (name / url / File) into (flat) sequence of sections. First section may be type :root,
    subsequent are type :section. Other parsed representations may be contained within the sections"
-  [f]
-  (with-open [rdr (io/reader f)]
-    (reduce handle-line [(root)] (line-seq rdr))))
+  [f & {:keys [org-todo-keywords encoding]
+        :or {org-todo-keywords *org-todo-keywords*
+             encoding "UTF-8"}}]
+  (binding [*org-todo-keywords* org-todo-keywords]
+    (with-open [rdr (reader f :encoding encoding)]
+      (reduce handle-line [(root)] (line-seq rdr)))))
+
+(defn agenda-tasks
+  "Takes parsed org file and returns agenda tasks"
+  [org]
+  (->> org
+       (filter :kw)
+       (map (fn [m] {:desc (:name m) :status (keyword (lower-case (:kw m)))}))))
